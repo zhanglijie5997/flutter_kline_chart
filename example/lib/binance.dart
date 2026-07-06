@@ -57,20 +57,24 @@ class BinanceSource {
         turnover: _d(a[7]),
       );
 
-  /// Fetch up to [limit] historical bars for [period].
-  Future<List<KLineData>> fetchHistory(Period period, {int limit = 1000}) async {
+  /// Fetch up to [limit] historical bars for [period]. Pass [endTime] (ms) to
+  /// fetch the bars ending before that timestamp (for pagination to the left).
+  Future<List<KLineData>> fetchHistory(Period period,
+      {int limit = 1000, int? endTime}) async {
     final interval = intervalOf(period);
     if (interval == null) {
       // No yearly interval on Binance -> aggregate monthly bars into years.
-      final monthly = await _fetch('1M', 1000);
+      final monthly = await _fetch('1M', 1000, endTime: endTime);
       return _aggregateYearly(monthly, period.span);
     }
-    return _fetch(interval, limit);
+    return _fetch(interval, limit, endTime: endTime);
   }
 
-  Future<List<KLineData>> _fetch(String interval, int limit) async {
-    final uri = Uri.parse(
-        '$_restBase?symbol=$symbol&interval=$interval&limit=$limit');
+  Future<List<KLineData>> _fetch(String interval, int limit,
+      {int? endTime}) async {
+    final query = 'symbol=$symbol&interval=$interval&limit=$limit'
+        '${endTime != null ? '&endTime=$endTime' : ''}';
+    final uri = Uri.parse('$_restBase?$query');
     final resp = await http.get(uri).timeout(const Duration(seconds: 20));
     if (resp.statusCode != 200) {
       throw Exception('Binance HTTP ${resp.statusCode}: ${resp.body}');

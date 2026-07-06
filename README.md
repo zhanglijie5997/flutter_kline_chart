@@ -27,6 +27,7 @@ The original library renders to an HTML5 canvas and is driven by the DOM. This p
   - [Live data from Binance (REST + WebSocket)](#live-data-from-binance)
   - [Fullscreen chart in landscape](#fullscreen-chart-in-landscape)
   - [Floating info panel that follows the crosshair](#floating-info-panel)
+  - [Load older history on scroll (pagination)](#load-older-history-on-scroll-pagination)
   - [Volume-only sub-pane](#volume-only-sub-pane)
 - [API reference](#api-reference)
 - [Architecture](#architecture)
@@ -391,6 +392,33 @@ Positioned(
   child: IgnorePointer(child: _infoCard(_focused!)),
 );
 ```
+
+### Load older history on scroll (pagination)
+
+Prepend older bars when the user scrolls near the left edge. `controller.oldestBarX`
+is the content x of the oldest loaded bar; trigger when it comes within, say, 50px
+of the left edge:
+
+```dart
+controller.store.addListener(() {
+  if (_loadingMore || _noMore) return;
+  final x0 = controller.oldestBarX;
+  if (x0 != null && x0 >= -50) _loadOlder(); // within 50px of the left edge
+});
+
+Future<void> _loadOlder() async {
+  _loadingMore = true;
+  final oldest = controller.getDataList().first.timestamp;
+  final older = await api.fetchBefore(oldest);   // fetch bars ending before `oldest`
+  if (older.isEmpty) { _noMore = true; }
+  else { controller.prependData(older); }         // right-anchored; view doesn't jump
+  _loadingMore = false;
+}
+```
+
+`prependData` keeps the right side anchored, so the visible bars stay put while older
+history appears to the left. (Binance's `klines` endpoint takes an `endTime` param for
+this — see `example/lib/binance.dart`.)
 
 ### Volume-only sub-pane
 

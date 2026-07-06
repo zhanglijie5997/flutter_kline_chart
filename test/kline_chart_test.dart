@@ -240,6 +240,32 @@ void main() {
         reason: 'zoomOut narrows bars');
   });
 
+  test('pagination: oldestBarX approaches the edge on scroll; prependData extends history',
+      () {
+    final c = freshController();
+    c.store.setTotalBarSpace(600);
+    c.startScroll();
+    c.scrollByDistance(2000); // drag far left to reach the oldest bars
+    final x0 = c.oldestBarX!;
+    expect(x0, greaterThanOrEqualTo(-50),
+        reason: 'scrolled to the left edge -> oldest bar within 50px');
+
+    final firstTs = c.getDataList().first.timestamp;
+    final before = c.getDataList().length;
+    c.prependData([
+      for (var i = 60; i >= 1; i--)
+        KLineData(
+            timestamp: firstTs - i * 86400000,
+            open: 1,
+            high: 2,
+            low: 0.5,
+            close: 1.5),
+    ]);
+    expect(c.getDataList().length, before + 60);
+    expect(c.oldestBarX!, lessThan(x0),
+        reason: 'older bars push the oldest bar further left');
+  });
+
   test('coordinate <-> index conversions round-trip', () {
     final c = freshController();
     c.store.setTotalBarSpace(600);

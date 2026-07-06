@@ -101,6 +101,8 @@ class _ChartPageState extends State<ChartPage> {
   final BinanceSource _binance = BinanceSource(symbol: 'BTCUSDT');
   bool _loading = false;
   String? _error;
+  bool _loadingMore = false;
+  bool _noMoreHistory = false;
 
   // Selectable timeframes.
   static const List<(String, Period)> _periods = <(String, Period)>[
@@ -147,12 +149,49 @@ class _ChartPageState extends State<ChartPage> {
     // Sub-pane: volume only — empty calcParams removes the volume-MA lines,
     // leaving just the volume bars; legend hidden.
     controller.createIndicator('VOL', calcParams: <dynamic>[], styles: _noLegend);
+    // Load older history when the user scrolls near the left edge.
+    controller.store.addListener(_maybeLoadOlder);
     _load(_periods[_periodIndex].$2);
+  }
+
+  /// Prefetch older history when the oldest bar comes within 50px of the left
+  /// edge.
+  void _maybeLoadOlder() {
+    if (widget.historyLoader != null) return; // offline / tests: no network
+    if (_loading || _loadingMore || _noMoreHistory) return;
+    final x0 = controller.oldestBarX;
+    if (x0 != null && x0 >= -50) {
+      _loadOlder();
+    }
+  }
+
+  Future<void> _loadOlder() async {
+    final data = controller.getDataList();
+    if (data.isEmpty) return;
+    _loadingMore = true;
+    final period = _periods[_periodIndex].$2;
+    final oldestTs = data.first.timestamp;
+    try {
+      final older = await _binance.fetchHistory(period,
+          endTime: oldestTs - 1, limit: 500);
+      final fresh = older.where((b) => b.timestamp < oldestTs).toList();
+      if (fresh.isEmpty) {
+        _noMoreHistory = true; // reached the start of available history
+      } else {
+        controller.prependData(fresh);
+      }
+    } catch (_) {
+      // ignore; will retry on the next scroll
+    } finally {
+      _loadingMore = false;
+    }
   }
 
   /// Load history for [period] from Binance, then subscribe to live updates.
   /// Falls back to synthetic data if Binance is unreachable.
   Future<void> _load(Period period) async {
+    _noMoreHistory = false;
+    _loadingMore = false;
     setState(() {
       _loading = true;
       _error = null;
@@ -232,6 +271,7 @@ class _ChartPageState extends State<ChartPage> {
   @override
   void dispose() {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    controller.store.removeListener(_maybeLoadOlder);
     _binance.dispose();
     controller.dispose();
     super.dispose();

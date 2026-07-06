@@ -226,6 +226,12 @@ class KLineChartController {
 
   double contentX(double dx) => dx.clamp(0.0, layoutContentWidth);
 
+  /// Content x-coordinate of the oldest loaded bar (data index 0), or `null`
+  /// if there is no data. Useful for "load older history when scrolled near
+  /// the left edge": trigger when this value is `>= -threshold`.
+  double? get oldestBarX =>
+      store.getDataList().isEmpty ? null : store.dataIndexToCoordinate(0);
+
   /// Convert a `(timestamp, price)` point to a pixel [Offset] within the chart
   /// widget (candle pane), or `null` if the layout isn't ready yet. `x` is in
   /// content coordinates; `y` includes the candle pane's top offset.

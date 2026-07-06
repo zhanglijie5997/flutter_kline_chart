@@ -1,0 +1,23 @@
+# Dart / Flutter
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+pubspec.lock
+doc/api/
+coverage/
+
+# Generated platform folders (example is source-only; run `flutter create .`)
+.gradle/
+*.iml
+
+# IDE / editors
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db

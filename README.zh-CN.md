@@ -27,6 +27,7 @@
   - [币安实时数据(REST + WebSocket)](#币安实时数据)
   - [横屏全屏看盘](#横屏全屏看盘)
   - [跟随十字光标的浮窗面板](#跟随浮窗面板)
+  - [滚动到左侧时加载更早历史(分页)](#滚动分页加载)
   - [只显示成交量的副面板](#只显示成交量的副面板)
 - [API 速查](#api-速查)
 - [架构](#架构)
@@ -394,6 +395,29 @@ Positioned(
   child: IgnorePointer(child: _infoCard(_focused!)),
 );
 ```
+
+### 滚动分页加载
+
+滚动到接近左边缘时前插更早的 K 线。`controller.oldestBarX` 是最老一根的内容 x 坐标;当它进入距左边缘 50px 内时触发:
+
+```dart
+controller.store.addListener(() {
+  if (_loadingMore || _noMore) return;
+  final x0 = controller.oldestBarX;
+  if (x0 != null && x0 >= -50) _loadOlder(); // 距左边缘 50px 内
+});
+
+Future<void> _loadOlder() async {
+  _loadingMore = true;
+  final oldest = controller.getDataList().first.timestamp;
+  final older = await api.fetchBefore(oldest);   // 拉 `oldest` 之前的 K 线
+  if (older.isEmpty) { _noMore = true; }
+  else { controller.prependData(older); }         // 右侧锚定,视图不跳动
+  _loadingMore = false;
+}
+```
+
+`prependData` 保持右侧锚定,所以当前可见的 K 线不动,更早的历史出现在左侧。(币安 `klines` 接口用 `endTime` 参数实现 —— 见 `example/lib/binance.dart`。)
 
 ### 只显示成交量的副面板
 
