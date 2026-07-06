@@ -1,0 +1,19 @@
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  errors:
+    # The port mirrors the upstream TS structure; relax a few pedantic lints.
+    constant_identifier_names: ignore
+    non_constant_identifier_names: ignore
+    library_private_types_in_public_api: ignore
+    unnecessary_brace_in_string_interps: ignore
+  exclude:
+    - example/**
+
+linter:
+  rules:
+    prefer_const_constructors: false
+    prefer_const_literals_to_create_immutables: false
+    avoid_print: false
+    constant_identifier_names: false
+    library_private_types_in_public_api: false

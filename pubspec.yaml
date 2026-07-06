@@ -1,0 +1,20 @@
+name: kline_chart
+description: A lightweight, high-performance financial K-line (candlestick) chart for Flutter. A faithful Dart port of klinecharts (KLineChart).
+version: 10.0.0-beta3
+homepage: https://github.com/klinecharts/KLineChart
+repository: https://github.com/klinecharts/KLineChart
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+  flutter: ">=3.16.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
