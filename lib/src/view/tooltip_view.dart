@@ -72,7 +72,8 @@ double _drawLegendRow(
 /// Simplified port of `view/CandleTooltipView.ts` — OHLCV legend.
 double drawCandleTooltip(Ctx ctx, PaneRenderContext c, Crosshair crosshair) {
   final data = crosshair.kLineData;
-  final tooltip = asMap(asMap(c.styles['candle'])['tooltip']);
+  final candleStyles = asMap(c.styles['candle']);
+  final tooltip = asMap(candleStyles['tooltip']);
   if (data == null || asString(tooltip['showRule'], 'always') == 'none') {
     return asDouble(tooltip['offsetTop'], 6);
   }
@@ -89,6 +90,22 @@ double drawCandleTooltip(Ctx ctx, PaneRenderContext c, Crosshair crosshair) {
       periodTypeCrosshairTooltipFormat[period?.type ?? 'day'] ?? 'YYYY-MM-DD';
   final timeText = c.store.getInnerFormatter().formatDate(data.timestamp, template, 'tooltip');
 
+  final legendStyles = asMap(tooltip['legend']);
+  final legendColor = asString(legendStyles['color'], '#76808F');
+  final defaultValue = asString(legendStyles['defaultValue'], 'n/a');
+
+  // Change (涨跌幅): percent change of close vs. the previous bar's close.
+  // Faithful to upstream CandleTooltipView; falls back to the current close
+  // (a 0% change) when there is no previous bar.
+  final dataList = c.store.getDataList();
+  final dataIndex = crosshair.dataIndex ?? (dataList.length - 1);
+  final prevIndex = dataIndex - 1;
+  final prev = (prevIndex >= 0 && prevIndex < dataList.length) ? dataList[prevIndex] : null;
+  final prevClose = prev?.close ?? data.close;
+  final changeValue = data.close - prevClose;
+  final changePercent =
+      prevClose == 0 ? double.nan : changeValue / prevClose * 100;
+
   final params = <String, Object?>{
     'time': timeText,
     'open': formatPrecision(data.open, pricePrecision),
@@ -97,10 +114,22 @@ double drawCandleTooltip(Ctx ctx, PaneRenderContext c, Crosshair crosshair) {
     'close': formatPrecision(data.close, pricePrecision),
     'volume': formatPrecision(data.volume ?? 0, volumePrecision),
     'turnover': formatPrecision(data.turnover ?? 0, 2),
+    'change': changePercent.isFinite
+        ? '${formatPrecision(changePercent)}%'
+        : defaultValue,
   };
 
-  final legendStyles = asMap(tooltip['legend']);
-  final legendColor = asString(legendStyles['color'], '#76808F');
+  // The change (涨跌幅) row is tinted by direction with the last-price mark
+  // colours. Upstream tints only the value child; since this port renders each
+  // legend row as a single text unit, the whole change row is tinted.
+  final lastPriceMark = asMap(asMap(candleStyles['priceMark'])['last']);
+  final upColor = asString(lastPriceMark['upColor'], '#2DC08E');
+  final downColor = asString(lastPriceMark['downColor'], '#F92855');
+  final noChangeColor = asString(lastPriceMark['noChangeColor'], '#76808F');
+  final changeColor = changeValue == 0
+      ? noChangeColor
+      : (changeValue > 0 ? upColor : downColor);
+
   final legendTemplate = asList<Map<String, dynamic>>(legendStyles['template']);
 
   final items = <_LegendItem>[];
@@ -108,7 +137,8 @@ double drawCandleTooltip(Ctx ctx, PaneRenderContext c, Crosshair crosshair) {
     final title = asString(t['title']);
     final valueTemplate = asString(t['value']);
     final value = formatTemplateString(valueTemplate, params);
-    items.add(_LegendItem('$title$value', legendColor));
+    final color = valueTemplate.contains('{change}') ? changeColor : legendColor;
+    items.add(_LegendItem('$title$value', color));
   }
 
   // If the focused bar carries buy/sell markers, add them to the legend.

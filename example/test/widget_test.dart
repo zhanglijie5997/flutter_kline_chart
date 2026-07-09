@@ -23,7 +23,7 @@ void main() {
     expect(tester.takeException(), isNull);
 
     // Tap a few timeframe chips that are visible at the start of the row.
-    for (final label in ['5m', '15m', '1h', '4h']) {
+    for (final label in ['5分', '15分', '1时', '4时']) {
       final finder = find.text(label);
       if (finder.evaluate().isNotEmpty) {
         await tester.tap(finder.first, warnIfMissed: false);

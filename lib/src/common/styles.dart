@@ -249,6 +249,7 @@ Map<String, dynamic> _candleStyle() {
           <String, dynamic>{'title': 'high', 'value': '{high}'},
           <String, dynamic>{'title': 'low', 'value': '{low}'},
           <String, dynamic>{'title': 'close', 'value': '{close}'},
+          <String, dynamic>{'title': 'change', 'value': '{change}'},
           <String, dynamic>{'title': 'volume', 'value': '{volume}'},
         ],
       },

@@ -104,26 +104,25 @@ class _ChartPageState extends State<ChartPage> {
   bool _loadingMore = false;
   bool _noMoreHistory = false;
 
-  // Selectable timeframes.
+  // Selectable timeframes (Chinese labels, like a Gate-style chart).
   static const List<(String, Period)> _periods = <(String, Period)>[
-    ('1m', Period(type: 'minute', span: 1)),
-    ('5m', Period(type: 'minute', span: 5)),
-    ('15m', Period(type: 'minute', span: 15)),
-    ('1h', Period(type: 'hour', span: 1)),
-    ('4h', Period(type: 'hour', span: 4)),
-    ('12h', Period(type: 'hour', span: 12)),
-    ('1D', Period(type: 'day', span: 1)),
-    ('3D', Period(type: 'day', span: 3)),
-    ('1W', Period(type: 'week', span: 1)),
-    ('1M', Period(type: 'month', span: 1)),
-    ('1Y', Period(type: 'year', span: 1)),
+    ('1分', Period(type: 'minute', span: 1)),
+    ('5分', Period(type: 'minute', span: 5)),
+    ('15分', Period(type: 'minute', span: 15)),
+    ('1时', Period(type: 'hour', span: 1)),
+    ('4时', Period(type: 'hour', span: 4)),
+    ('12时', Period(type: 'hour', span: 12)),
+    ('1日', Period(type: 'day', span: 1)),
+    ('3日', Period(type: 'day', span: 3)),
+    ('1周', Period(type: 'week', span: 1)),
+    ('1月', Period(type: 'month', span: 1)),
+    ('1年', Period(type: 'year', span: 1)),
   ];
-  int _periodIndex = 6; // 1D
+  int _periodIndex = 4; // 4时
 
-  // Hide the legend text on sub-pane indicators (keep the main-pane MA legend).
-  static const Map<String, dynamic> _noLegend = <String, dynamic>{
-    'tooltip': {'showRule': 'none'},
-  };
+  // Main-pane overlay indicators (bottom selector); BOLL is the default.
+  static const List<String> _mainIndicators = <String>['BOLL', 'MA', 'EMA', 'SAR'];
+  String _mainIndicator = 'BOLL';
 
   // Focused candle (follows the crosshair) + pointer position, used to place
   // the info panel in the opposite top corner.
@@ -143,12 +142,11 @@ class _ChartPageState extends State<ChartPage> {
         'tooltip': {'showRule': 'none'},
       },
     });
-    // Overlay MA on the candle pane (keeps its legend); VOL in a sub-pane
-    // with its legend hidden.
-    controller.createIndicator('MA', paneId: KLineChartController.candlePaneId);
-    // Sub-pane: volume only — empty calcParams removes the volume-MA lines,
-    // leaving just the volume bars; legend hidden.
-    controller.createIndicator('VOL', calcParams: <dynamic>[], styles: _noLegend);
+    // Main overlay: BOLL (orange bands, green mid) + VOL and KDJ sub-panes,
+    // matching a Gate-style layout. Their legends are shown at each pane's top.
+    _createMainIndicator(_mainIndicator);
+    controller.createIndicator('VOL');
+    controller.createIndicator('KDJ');
     // Load older history when the user scrolls near the left edge.
     controller.store.addListener(_maybeLoadOlder);
     _load(_periods[_periodIndex].$2);
@@ -268,6 +266,30 @@ class _ChartPageState extends State<ChartPage> {
     }
   }
 
+  /// Create the main-pane overlay indicator, colouring BOLL like the reference.
+  void _createMainIndicator(String name) {
+    Map<String, dynamic>? styles;
+    if (name == 'BOLL') {
+      styles = <String, dynamic>{
+        'lines': [
+          {'color': '#F5A623'}, // UB — orange
+          {'color': '#2DC08E'}, // MB — green
+          {'color': '#F5A623'}, // LB — orange
+        ],
+      };
+    }
+    controller.createIndicator(name,
+        paneId: KLineChartController.candlePaneId, styles: styles);
+  }
+
+  void _switchMain(String name) {
+    if (name == _mainIndicator) return;
+    controller.removeIndicator(
+        paneId: KLineChartController.candlePaneId, name: _mainIndicator);
+    setState(() => _mainIndicator = name);
+    _createMainIndicator(name);
+  }
+
   @override
   void dispose() {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -326,18 +348,90 @@ class _ChartPageState extends State<ChartPage> {
           ),
         ],
       ),
-      appBar: AppBar(
-        title: const Text('BTC/USDT · Binance'),
+      backgroundColor: const Color(0xFF0D0D0F),
+      bottomNavigationBar: SafeArea(top: false, child: _indicatorBar()),
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            _topBar(),
+            Expanded(child: _buildChart()),
+          ],
+        ),
       ),
-      body: Column(
-        children: [
-          _timeframeBar(),
-          // Portrait: chart takes half of the screen height.
-          SizedBox(
-            height: MediaQuery.of(context).size.height / 2,
-            child: _buildChart(),
+    );
+  }
+
+  /// Top bar: timeframe tabs + a few (decorative) tool icons, like the header
+  /// of a Gate-style chart.
+  Widget _topBar() {
+    Widget icon(IconData i) => IconButton(
+          visualDensity: VisualDensity.compact,
+          icon: Icon(i, color: Colors.white54, size: 20),
+          onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                duration: Duration(milliseconds: 700),
+                content: Text('demo')),
           ),
+        );
+    return SizedBox(
+      height: 46,
+      child: Row(
+        children: [
+          Expanded(child: _timeframeBar()),
+          icon(Icons.fullscreen),
+          icon(Icons.candlestick_chart_outlined),
+          icon(Icons.settings_outlined),
         ],
+      ),
+    );
+  }
+
+  /// Bottom bar: main-pane indicator switcher (MA/EMA/BOLL/SAR) plus the fixed
+  /// sub-pane labels, like a Gate-style indicator menu.
+  Widget _indicatorBar() {
+    const items = <String>[
+      'VOL', 'KDJ', 'MA', 'EMA', 'BOLL', 'SAR', '撑压线', '超级趋势'
+    ];
+    final switchable = _mainIndicators.toSet();
+    return Container(
+      height: 44,
+      color: const Color(0xFF17171C),
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemCount: items.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 22),
+        itemBuilder: (context, i) {
+          final name = items[i];
+          final isMain = switchable.contains(name);
+          final selected = isMain && name == _mainIndicator;
+          final subPane = name == 'VOL' || name == 'KDJ';
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () {
+              if (isMain) {
+                _switchMain(name);
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    duration: const Duration(milliseconds: 800),
+                    content: Text('$name: demo only')));
+              }
+            },
+            child: Center(
+              child: Text(
+                name,
+                style: TextStyle(
+                  color: selected
+                      ? Colors.white
+                      : (subPane ? Colors.white70 : Colors.white54),
+                  fontSize: 14,
+                  fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -358,17 +452,15 @@ class _ChartPageState extends State<ChartPage> {
               alignment: Alignment.center,
               padding: const EdgeInsets.symmetric(horizontal: 14),
               decoration: BoxDecoration(
-                color: selected
-                    ? Theme.of(context).colorScheme.primary
-                    : const Color(0xFF2A2A30),
+                color: selected ? const Color(0xFF33343A) : Colors.transparent,
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Text(
                 _periods[i].$1,
                 style: TextStyle(
-                  color: selected ? Colors.white : Colors.white70,
+                  color: selected ? Colors.white : Colors.white54,
                   fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-                  fontSize: 13,
+                  fontSize: 14,
                 ),
               ),
             ),
@@ -496,8 +588,24 @@ class _ChartPageState extends State<ChartPage> {
     final date = DateTime.fromMillisecondsSinceEpoch(d.timestamp);
     final dateText =
         '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
-    final up = d.close >= d.open;
-    final changeColor = up ? const Color(0xFF2DC08E) : const Color(0xFFF92855);
+
+    // 涨跌幅 (change %): close vs. the previous bar's close, coloured by
+    // direction exactly like the chart's built-in candle tooltip (neutral at
+    // a flat bar, no sign — the direction is conveyed by colour).
+    final list = controller.getDataList();
+    final i = list.indexWhere((e) => e.timestamp == d.timestamp);
+    final prevClose = (i > 0) ? list[i - 1].close : d.close;
+    final change = d.close - prevClose;
+    final pct = prevClose == 0 ? double.nan : change / prevClose * 100;
+    final changeColor = change == 0
+        ? const Color(0xFF76808F)
+        : (change > 0 ? const Color(0xFF2DC08E) : const Color(0xFFF92855));
+    final changeText = pct.isFinite ? '${pct.toStringAsFixed(2)}%' : '--';
+    // The Close row keeps its candle-body colour (open vs close) so it matches
+    // the drawn bars.
+    final bodyColor = (d.close >= d.open)
+        ? const Color(0xFF2DC08E)
+        : const Color(0xFFF92855);
     Widget row(String k, String v, [Color? c]) => Padding(
           padding: const EdgeInsets.symmetric(vertical: 1),
           child: Row(
@@ -534,7 +642,8 @@ class _ChartPageState extends State<ChartPage> {
           row('Open', d.open.toStringAsFixed(2)),
           row('High', d.high.toStringAsFixed(2)),
           row('Low', d.low.toStringAsFixed(2)),
-          row('Close', d.close.toStringAsFixed(2), changeColor),
+          row('Close', d.close.toStringAsFixed(2), bodyColor),
+          row('涨跌幅', changeText, changeColor),
           row('Volume', (d.volume ?? 0).toStringAsFixed(0)),
           // Buy/sell markers on this bar -> show side + price in the popup.
           ...controller.markers

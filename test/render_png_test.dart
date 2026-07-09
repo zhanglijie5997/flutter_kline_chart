@@ -21,14 +21,18 @@ void main() {
         'tooltip': {'showRule': 'none'},
       },
     });
-    controller.createIndicator('MA', paneId: KLineChartController.candlePaneId);
-    // Sub-pane indicators with their legend hidden (per-indicator showRule).
-    const hide = <String, dynamic>{
-      'tooltip': {'showRule': 'none'}
-    };
-    // VOL with empty calcParams -> volume bars only (no volume-MA lines).
-    controller.createIndicator('VOL', calcParams: <dynamic>[], styles: hide);
-    controller.createIndicator('MACD', styles: hide);
+    // Main overlay: BOLL (UB/LB orange, MB green); VOL + KDJ sub-panes.
+    controller.createIndicator('BOLL',
+        paneId: KLineChartController.candlePaneId,
+        styles: <String, dynamic>{
+          'lines': [
+            {'color': '#F5A623'},
+            {'color': '#2DC08E'},
+            {'color': '#F5A623'},
+          ],
+        });
+    controller.createIndicator('VOL');
+    controller.createIndicator('KDJ');
 
     final bars = controller.getDataList();
     controller.setMarkers([
@@ -61,21 +65,22 @@ void main() {
                   backgroundColor: const Color(0xFF1B1B1F),
                   markerBuilder: (context, m) {
                     final buy = m.side == TradeSide.buy;
-                    return Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: buy
-                            ? const Color(0xFF2DC08E)
-                            : const Color(0xFFF92855),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        '${buy ? 'Buy' : 'Sell'} ${m.price.toStringAsFixed(0)}',
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold),
+                    final color = buy
+                        ? const Color(0xFF2DC08E)
+                        : const Color(0xFFF92855);
+                    // 10px dashed vertical line, placed outside the candle.
+                    return SizedBox(
+                      width: 10,
+                      height: 10,
+                      child: Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(width: 2, height: 3, color: color),
+                            const SizedBox(height: 2),
+                            Container(width: 2, height: 3, color: color),
+                          ],
+                        ),
                       ),
                     );
                   },

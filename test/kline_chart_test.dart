@@ -275,4 +275,39 @@ void main() {
       expect(back, i, reason: 'index $i -> x $x -> $back');
     }
   });
+
+  test('default candle tooltip legend exposes a change (涨跌幅) row', () {
+    final template = (getDefaultStyles()['candle'] as Map)['tooltip']['legend']
+        ['template'] as List;
+    final change = template.cast<Map>().firstWhere(
+        (e) => e['value'] == '{change}',
+        orElse: () => const <String, dynamic>{});
+    expect(change['title'], 'change',
+        reason: 'OHLCV tooltip should include a {change} legend entry');
+  });
+
+  testWidgets('candle tooltip renders change on the first bar (no previous close)',
+      (tester) async {
+    // Focusing bar 0 has no previous close, so the change falls back to 0%.
+    // This exercises the prevClose fallback / division-guard branch.
+    final controller = freshController();
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: SizedBox(
+          width: 700,
+          height: 500,
+          child: KLineChartWidget(controller: controller),
+        ),
+      ),
+    ));
+    await tester.pump(const Duration(milliseconds: 60));
+
+    for (final index in [0, controller.getDataList().length - 1]) {
+      final x = controller.store.dataIndexToCoordinate(index);
+      controller.store.setCrosshair(Crosshair(
+          x: x, y: 160, paneId: KLineChartController.candlePaneId));
+      await tester.pump(const Duration(milliseconds: 30));
+      expect(tester.takeException(), isNull, reason: 'crosshair at bar $index');
+    }
+  });
 }
