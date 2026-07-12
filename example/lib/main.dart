@@ -19,6 +19,9 @@ import 'package:flutter/services.dart';
 import 'package:kline_chart/kline_chart.dart';
 
 import 'binance.dart';
+import 'gate.dart';
+import 'market_source.dart';
+import 'okx.dart';
 
 /// Contract-list load state shared with the symbol picker.
 typedef _SymbolState = ({
@@ -31,7 +34,11 @@ typedef _SymbolState = ({
 /// Format [v] to [precision] decimals with thousands separators, e.g.
 /// `62,748.40`.
 String _fmtPrice(double v, int precision) {
+  if (!v.isFinite) return '$v';
   final s = v.toStringAsFixed(precision);
+  // Very large values render in scientific notation ('1e+21'); don't try to
+  // insert thousands separators into that (it would mangle the exponent).
+  if (s.contains('e') || s.contains('E')) return s;
   final dot = s.indexOf('.');
   final intPart = dot == -1 ? s : s.substring(0, dot);
   final frac = dot == -1 ? '' : s.substring(dot);
@@ -49,6 +56,154 @@ String _fmtPrice(double v, int precision) {
 enum _OrderSide { buy, sell }
 
 enum _OrderType { market, limit }
+
+/// Selectable exchanges for the header dropdown. 币安 (Binance) is the default
+/// and — in this example — the only one with live market data wired up.
+enum _Exchange {
+  binance('币安'),
+  okx('OKX'),
+  gate('Gate');
+
+  const _Exchange(this.label);
+  final String label;
+}
+
+/// A small brand badge for [ex]. These are code-drawn approximations of each
+/// exchange's logo (the example bundles no image assets); swap in real asset
+/// images if you have them.
+Widget _exchangeLogo(_Exchange ex, {double size = 22}) {
+  switch (ex) {
+    case _Exchange.binance:
+      return SizedBox(
+        width: size,
+        height: size,
+        child: CustomPaint(painter: const _BinanceLogoPainter()),
+      );
+    case _Exchange.okx:
+      return _wordmarkBadge('OKX', const Color(0xFF0B0B0B), size,
+          fontScale: 0.30);
+    case _Exchange.gate:
+      return _wordmarkBadge('G', const Color(0xFF2354E6), size, fontScale: 0.5);
+  }
+}
+
+/// A rounded-square badge with white [text] on a [bg] brand colour.
+Widget _wordmarkBadge(String text, Color bg, double size,
+    {double fontScale = 0.4}) {
+  return Container(
+    width: size,
+    height: size,
+    alignment: Alignment.center,
+    decoration: BoxDecoration(
+      color: bg,
+      borderRadius: BorderRadius.circular(size * 0.24),
+      border: Border.all(color: Colors.white24, width: 0.6),
+    ),
+    child: Text(
+      text,
+      style: TextStyle(
+        color: Colors.white,
+        fontSize: size * fontScale,
+        fontWeight: FontWeight.w800,
+        letterSpacing: -0.5,
+      ),
+    ),
+  );
+}
+
+/// Draws the Binance mark — five dark diamonds (a centre plus four around it)
+/// on the brand's yellow — approximating the logo at badge size.
+class _BinanceLogoPainter extends CustomPainter {
+  const _BinanceLogoPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rr = RRect.fromRectAndRadius(
+        Offset.zero & size, Radius.circular(size.width * 0.24));
+    canvas.drawRRect(rr, Paint()..color = const Color(0xFFF0B90B));
+
+    final dark = Paint()..color = const Color(0xFF181A20);
+    final c = size.center(Offset.zero);
+    final u = size.width / 4.6;
+    final hd = u * 0.95; // half-diagonal of each small diamond
+
+    void diamond(Offset o) {
+      canvas.drawPath(
+        Path()
+          ..moveTo(o.dx, o.dy - hd)
+          ..lineTo(o.dx + hd, o.dy)
+          ..lineTo(o.dx, o.dy + hd)
+          ..lineTo(o.dx - hd, o.dy)
+          ..close(),
+        dark,
+      );
+    }
+
+    diamond(c);
+    diamond(c.translate(0, -u * 1.5));
+    diamond(c.translate(0, u * 1.5));
+    diamond(c.translate(-u * 1.5, 0));
+    diamond(c.translate(u * 1.5, 0));
+  }
+
+  @override
+  bool shouldRepaint(_BinanceLogoPainter oldDelegate) => false;
+}
+
+/// A round coin badge for [base] (e.g. 'BTC'). Loads a real token icon and
+/// falls back to a colored monogram when the image is unavailable (offline,
+/// unknown ticker, or a TradFi symbol).
+Widget _coinLogo(String base, {double size = 26}) {
+  final fallback = _coinMonogram(base, size);
+  final url =
+      'https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/128/color/${base.toLowerCase()}.png';
+  return SizedBox(
+    width: size,
+    height: size,
+    child: ClipOval(
+      child: Image.network(
+        url,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+        errorBuilder: (_, __, ___) => fallback,
+        loadingBuilder: (context, child, progress) =>
+            progress == null ? child : fallback,
+      ),
+    ),
+  );
+}
+
+/// Colored circle with the ticker's initials — the offline / fallback avatar.
+Widget _coinMonogram(String base, double size) {
+  return Container(
+    width: size,
+    height: size,
+    alignment: Alignment.center,
+    decoration: BoxDecoration(color: _coinColor(base), shape: BoxShape.circle),
+    child: Padding(
+      padding: EdgeInsets.symmetric(horizontal: size * 0.16),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Text(
+          base.isEmpty ? '?' : base,
+          style: const TextStyle(
+              color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+        ),
+      ),
+    ),
+  );
+}
+
+/// A deterministic, stable-per-ticker colour for the monogram fallback.
+Color _coinColor(String base) {
+  var h = 0;
+  for (final c in base.codeUnits) {
+    h = (h * 31 + c) & 0x7FFFFFFF;
+  }
+  return HSLColor.fromAHSL(1, (h % 360).toDouble(), 0.5, 0.5).toColor();
+}
 
 /// A small pill tagging a contract as TradFi (gold) or a crypto 永续 (green).
 Widget _typeTag(bool tradFi, {double fontSize = 10}) {
@@ -202,7 +357,8 @@ class ChartPage extends StatefulWidget {
 
 class _ChartPageState extends State<ChartPage> {
   late final KLineChartController controller;
-  late final BinanceSource _binance;
+  // Active market-data source; swapped when the header exchange changes.
+  late MarketSource _binance;
 
   // Available contracts (seeded with a small offline list, replaced by the full
   // Binance futures list once fetched) + load status, exposed to the picker via
@@ -216,6 +372,9 @@ class _ChartPageState extends State<ChartPage> {
   ));
   // The currently-selected contract.
   FuturesSymbol _symbol = BinanceSource.fallbackSymbols.first;
+
+  // Selected exchange for the header dropdown (示例 — only 币安 has live data).
+  _Exchange _exchange = _Exchange.binance;
 
   // Remembered picker view so reopening returns to the last-closed position:
   // the selected 板块 (sector) and the list's scroll offset.
@@ -232,7 +391,17 @@ class _ChartPageState extends State<ChartPage> {
 
   // Live websocket status + the latest ticker (header price / 24h 涨跌幅) +
   // app-lifecycle listener used to reconnect & backfill on foreground.
-  Ticker? _liveTicker;
+  Ticker? _liveTickerField;
+  Ticker? get _liveTicker => _liveTickerField;
+  set _liveTicker(Ticker? t) {
+    _liveTickerField = t;
+    // Keep an open order sheet's 市价 in sync with the header price.
+    _livePrice.value = t?.last;
+  }
+
+  /// The header (top) price, exposed as a listenable so an open order sheet's
+  /// 市价 tracks it live.
+  final ValueNotifier<double?> _livePrice = ValueNotifier<double?>(null);
   AppLifecycleListener? _lifecycle;
   // Data-freshness heartbeat. Bar, all-market-price, and 24h-stat freshness are
   // tracked independently: a healthy trade/ticker stream must not mask a frozen
@@ -289,7 +458,9 @@ class _ChartPageState extends State<ChartPage> {
   @override
   void initState() {
     super.initState();
-    _binance = widget.marketSource ?? BinanceSource(symbol: 'BTCUSDT');
+    _binance = widget.marketSource != null
+        ? BinanceMarketSource(widget.marketSource)
+        : _sourceFor(_exchange);
     controller = KLineChartController(styles: darkStyleOverrides());
     controller.setSymbol(SymbolInfo(
         ticker: _symbol.symbol,
@@ -337,7 +508,7 @@ class _ChartPageState extends State<ChartPage> {
       loading: true,
       error: null,
     );
-    final symbolsFuture = BinanceSource.fetchSymbols().then<void>((symbols) {
+    final symbolsFuture = _binance.fetchSymbols().then<void>((symbols) {
       if (!mounted) return;
       final latest = _symbolsState.value;
       _symbolsState.value = (
@@ -356,7 +527,7 @@ class _ChartPageState extends State<ChartPage> {
         error: '合约列表加载失败（网络或地区限制）',
       );
     });
-    final tickersFuture = BinanceSource.fetchTickers().then<void>((tickers) {
+    final tickersFuture = _binance.fetchTickers().then<void>((tickers) {
       if (!mounted || tickers.isEmpty) return;
       _mergeTickers(tickers);
       final now = DateTime.now();
@@ -552,7 +723,7 @@ class _ChartPageState extends State<ChartPage> {
     if (!mounted || widget.historyLoader != null) return;
     final now = DateTime.now();
     final period = _periods[_periodIndex].$2;
-    final hasNativeKline = BinanceSource.intervalOf(period) != null;
+    final hasNativeKline = _binance.intervalOf(period) != null;
     final barPollAfter = hasNativeKline
         ? const Duration(milliseconds: 800)
         : const Duration(seconds: 30);
@@ -672,7 +843,7 @@ class _ChartPageState extends State<ChartPage> {
   Future<void> _pollSelectedTicker(int gen, String symbol) async {
     Ticker ticker;
     try {
-      ticker = await BinanceSource.fetchTicker(symbol);
+      ticker = await _binance.fetchTicker(symbol);
     } catch (_) {
       return;
     }
@@ -684,7 +855,7 @@ class _ChartPageState extends State<ChartPage> {
 
   Future<void> _refreshListPrices() async {
     try {
-      final prices = await BinanceSource.fetchPrices();
+      final prices = await _binance.fetchPrices();
       if (!mounted || prices.isEmpty) return;
       _mergePrices(prices);
       final now = DateTime.now();
@@ -697,7 +868,7 @@ class _ChartPageState extends State<ChartPage> {
 
   Future<void> _refreshFullTickers() async {
     try {
-      final tickers = await BinanceSource.fetchTickers();
+      final tickers = await _binance.fetchTickers();
       if (!mounted || tickers.isEmpty) return;
       _mergeTickers(tickers);
       final now = DateTime.now();
@@ -737,11 +908,91 @@ class _ChartPageState extends State<ChartPage> {
     );
   }
 
+  /// Header exchange dropdown (币安 / OKX / Gate) with each exchange's logo.
+  /// Replaces the old search affordance — the symbol name still opens the
+  /// picker. Only 币安 has live data wired up in this example.
+  /// A fresh data source for [e], seeded with the current contract.
+  MarketSource _sourceFor(_Exchange e) {
+    final MarketSource s = switch (e) {
+      _Exchange.binance => BinanceMarketSource(),
+      _Exchange.okx => OkxSource(),
+      _Exchange.gate => GateSource(),
+    };
+    s.symbol = _symbol.symbol;
+    return s;
+  }
+
+  /// Switch the active exchange: tear down the old feed, connect the new one,
+  /// and reload the catalog + chart for the current contract.
+  void _switchExchange(_Exchange e) {
+    if (e == _exchange) return;
+    setState(() => _exchange = e);
+    _binance.unsubscribe();
+    _binance.dispose();
+    _binance = _sourceFor(e);
+    // Reset the catalog to the shared fallback while the new exchange loads.
+    _symbolsState.value = (
+      list: _binance.fallbackSymbols,
+      tickers: const <String, Ticker>{},
+      loading: false,
+      error: null,
+    );
+    _liveTicker = null;
+    _loadSymbols();
+    _load(_periods[_periodIndex].$2);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      duration: const Duration(milliseconds: 1100),
+      content: Text('已切换到 ${e.label} 行情'),
+    ));
+  }
+
+  Widget _exchangeSelector() {
+    return PopupMenuButton<_Exchange>(
+      tooltip: '选择交易所',
+      color: const Color(0xFF23232A),
+      position: PopupMenuPosition.under,
+      padding: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      onSelected: _switchExchange,
+      itemBuilder: (ctx) => [
+        for (final e in _Exchange.values)
+          PopupMenuItem<_Exchange>(
+            value: e,
+            height: 46,
+            child: Row(
+              children: [
+                _exchangeLogo(e, size: 22),
+                const SizedBox(width: 10),
+                Text(e.label,
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: e == _exchange
+                            ? FontWeight.bold
+                            : FontWeight.normal)),
+                const SizedBox(width: 16),
+                const Spacer(),
+                if (e == _exchange)
+                  const Icon(Icons.check, color: Color(0xFF2DC08E), size: 18),
+              ],
+            ),
+          ),
+      ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _exchangeLogo(_exchange, size: 22),
+            const Icon(Icons.arrow_drop_down, color: Colors.white54, size: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// Open the demo order-entry sheet (市价/挂单价 下单 with a二次确认弹窗).
   void _openOrderSheet() {
-    final data = controller.getDataList();
-    final lastPrice =
-        _liveTicker?.last ?? (data.isEmpty ? null : data.last.close);
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: const Color(0xFF17171C),
@@ -751,7 +1002,8 @@ class _ChartPageState extends State<ChartPage> {
       ),
       builder: (ctx) => _OrderSheet(
         symbol: _symbol,
-        lastPrice: lastPrice,
+        // Live header price, so the sheet's 市价 tracks the top price.
+        livePrice: _livePrice,
         // The sheet closes itself after the二次确认; surface a receipt here.
         onPlaced: (summary) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -1160,6 +1412,7 @@ class _ChartPageState extends State<ChartPage> {
     _lifecycle?.dispose();
     _binance.dispose();
     _symbolsState.dispose();
+    _livePrice.dispose();
     controller.dispose();
     super.dispose();
   }
@@ -1276,12 +1529,7 @@ class _ChartPageState extends State<ChartPage> {
             ),
             const SizedBox(width: 8),
             _wsIndicator(),
-            IconButton(
-              visualDensity: VisualDensity.compact,
-              icon: const Icon(Icons.search, color: Colors.white54, size: 22),
-              tooltip: '搜索币种',
-              onPressed: _openSymbolPicker,
-            ),
+            _exchangeSelector(),
           ],
         ),
       ),
@@ -2028,15 +2276,16 @@ class _SymbolPickerState extends State<_SymbolPicker> {
 class _OrderSheet extends StatefulWidget {
   const _OrderSheet({
     required this.symbol,
-    required this.lastPrice,
+    required this.livePrice,
     required this.onPlaced,
   });
 
   final FuturesSymbol symbol;
 
-  /// Current market price, used to prefill the limit price and to estimate the
-  /// market fill; null when no price is known yet (offline / before first tick).
-  final double? lastPrice;
+  /// Live header price. The sheet's 市价 tracks it in real time; also used to
+  /// prefill the limit price and estimate cost. Its value is null when no price
+  /// is known yet (offline / before the first tick).
+  final ValueListenable<double?> livePrice;
 
   /// Called after the user confirms the二次确认 dialog, with a human-readable
   /// receipt to surface (e.g. in a SnackBar). The sheet closes itself first.
@@ -2059,30 +2308,50 @@ class _OrderSheetState extends State<_OrderSheet> {
   @override
   void initState() {
     super.initState();
+    final now = widget.livePrice.value;
     _price = TextEditingController(
-      text: widget.lastPrice != null
-          ? widget.lastPrice!.toStringAsFixed(widget.symbol.pricePrecision)
-          : '',
+      text: now != null ? now.toStringAsFixed(widget.symbol.pricePrecision) : '',
     );
+    // Refresh the 市价 / 预计金额 whenever the header price ticks.
+    widget.livePrice.addListener(_onLivePrice);
+  }
+
+  void _onLivePrice() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
+    widget.livePrice.removeListener(_onLivePrice);
     _price.dispose();
     _qty.dispose();
     super.dispose();
   }
 
+  /// Current market price = the live header price.
+  double? get _marketPrice => widget.livePrice.value;
+
   Color get _accent => _side == _OrderSide.buy ? _green : _red;
   String get _sideLabel => _side == _OrderSide.buy ? '买入' : '卖出';
 
   double? get _qtyValue => double.tryParse(_qty.text.trim());
+
+  /// Quantity rounded to the contract's precision — the amount actually placed.
+  /// A sub-precision entry (e.g. 0.0004 at precision 3) rounds to 0 → invalid,
+  /// so validation, the estimate, and the receipt all agree on one value.
+  double? get _qtyRounded {
+    final q = _qtyValue;
+    return q == null
+        ? null
+        : double.parse(q.toStringAsFixed(widget.symbol.quantityPrecision));
+  }
+
   double? get _priceValue => _type == _OrderType.market
-      ? widget.lastPrice
+      ? _marketPrice
       : double.tryParse(_price.text.trim());
 
   double? get _estCost {
-    final q = _qtyValue;
+    final q = _qtyRounded;
     final p = _priceValue;
     return (q == null || p == null) ? null : q * p;
   }
@@ -2090,7 +2359,7 @@ class _OrderSheetState extends State<_OrderSheet> {
   /// A market order only needs a positive quantity; a limit order also needs a
   /// positive price.
   bool get _valid {
-    final q = _qtyValue;
+    final q = _qtyRounded;
     if (q == null || q <= 0) return false;
     if (_type == _OrderType.limit) {
       final p = _priceValue;
@@ -2102,6 +2371,7 @@ class _OrderSheetState extends State<_OrderSheet> {
   /// Quantity trimmed to the contract's precision, without trailing zeros.
   String _fmtQty(double v) {
     var s = v.toStringAsFixed(widget.symbol.quantityPrecision);
+    if (s.contains('e') || s.contains('E')) return s; // avoid mangling sci-notation
     if (s.contains('.')) {
       s = s.replaceFirst(RegExp(r'0+$'), '').replaceFirst(RegExp(r'\.$'), '');
     }
@@ -2113,14 +2383,14 @@ class _OrderSheetState extends State<_OrderSheet> {
     if (_type == _OrderType.limit) {
       return _fmtPrice(_priceValue ?? 0, widget.symbol.pricePrecision);
     }
-    return widget.lastPrice != null
-        ? '市价 ≈ ${_fmtPrice(widget.lastPrice!, widget.symbol.pricePrecision)}'
+    return _marketPrice != null
+        ? '市价 ≈ ${_fmtPrice(_marketPrice!, widget.symbol.pricePrecision)}'
         : '市价';
   }
 
   Future<void> _submit() async {
     if (!_valid) return;
-    final qty = _qtyValue!;
+    final qty = _qtyRounded!;
     // 二次确认: summarise the order and require an explicit confirmation.
     final confirmed = await showDialog<bool>(
       context: context,
@@ -2128,19 +2398,21 @@ class _OrderSheetState extends State<_OrderSheet> {
         backgroundColor: const Color(0xFF1E1E24),
         title: const Text('订单确认',
             style: TextStyle(color: Colors.white, fontSize: 17)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _confRow('合约', widget.symbol.display),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _confRow('合约', widget.symbol.display),
             _confRow('方向', _sideLabel, color: _accent),
             _confRow('类型', _type == _OrderType.market ? '市价' : '挂单价'),
             _confRow('价格', '$_priceLabel ${widget.symbol.quoteAsset}'),
-            _confRow('数量', '${_fmtQty(qty)} ${widget.symbol.baseAsset}'),
-            if (_estCost != null)
-              _confRow('预计金额',
-                  '${_fmtPrice(_estCost!, 2)} ${widget.symbol.quoteAsset}'),
-          ],
+              _confRow('数量', '${_fmtQty(qty)} ${widget.symbol.baseAsset}'),
+              if (_estCost != null)
+                _confRow('预计金额',
+                    '${_fmtPrice(_estCost!, 2)} ${widget.symbol.quoteAsset}'),
+            ],
+          ),
         ),
         actions: [
           TextButton(
@@ -2171,7 +2443,10 @@ class _OrderSheetState extends State<_OrderSheet> {
       padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       child: SingleChildScrollView(
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          // Clear the home indicator when the keyboard is down; MediaQuery
+          // padding collapses to 0 when the keyboard covers the safe area.
+          padding: EdgeInsets.fromLTRB(
+              16, 8, 16, 16 + MediaQuery.of(context).padding.bottom),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2372,6 +2647,7 @@ class _OrderSheetState extends State<_OrderSheet> {
                       const TextInputType.numberWithOptions(decimal: true),
                   inputFormatters: [
                     FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                    LengthLimitingTextInputFormatter(15),
                   ],
                   style: const TextStyle(color: Colors.white, fontSize: 15),
                   decoration: InputDecoration(
@@ -2394,8 +2670,8 @@ class _OrderSheetState extends State<_OrderSheet> {
   }
 
   Widget _marketNote() {
-    final ref = widget.lastPrice != null
-        ? '${_fmtPrice(widget.lastPrice!, widget.symbol.pricePrecision)} ${widget.symbol.quoteAsset}'
+    final ref = _marketPrice != null
+        ? '${_fmtPrice(_marketPrice!, widget.symbol.pricePrecision)} ${widget.symbol.quoteAsset}'
         : '--';
     return Container(
       height: 44,

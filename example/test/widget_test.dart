@@ -231,6 +231,28 @@ void main() {
     await tester.pump(const Duration(milliseconds: 120));
   }
 
+  testWidgets('exchange dropdown: defaults to 币安 and switches selection',
+      (tester) async {
+    await pumpChart(tester);
+
+    // A single exchange dropdown lives in the header.
+    final trigger = find.byWidgetPredicate((w) => w is PopupMenuButton);
+    expect(trigger, findsOneWidget);
+
+    // Opening it lists all three exchanges.
+    await tester.tap(trigger);
+    await tester.pumpAndSettle();
+    expect(find.text('币安'), findsWidgets);
+    expect(find.text('OKX'), findsWidgets);
+    expect(find.text('Gate'), findsWidgets);
+
+    // Selecting OKX closes the menu and surfaces a note mentioning it.
+    await tester.tap(find.text('OKX').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Gate'), findsNothing); // menu closed
+    expect(find.textContaining('OKX'), findsWidgets); // snackbar + trigger logo
+  });
+
   testWidgets('下单: market order needs a 二次确认 before it is placed',
       (tester) async {
     await pumpChart(tester);
@@ -260,6 +282,39 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('买入'), findsNothing); // sheet closed
     expect(find.textContaining('已提交'), findsOneWidget);
+  });
+
+  testWidgets('下单: 市价 tracks the live header price while the sheet is open',
+      (tester) async {
+    tester.view.physicalSize = const Size(420, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final source = _FakeBinanceSource();
+    final bars = generateData(const Period(type: 'hour', span: 4));
+
+    await tester.pumpWidget(MaterialApp(
+      home: ChartPage(
+        historyLoader: (_) async => bars,
+        marketSource: source,
+        demoTickers: const <String, Ticker>{
+          'BTCUSDT': (last: 100, changePct: 1),
+        },
+      ),
+    ));
+    await tester.pump(const Duration(milliseconds: 120));
+
+    // Open the sheet (market by default) — 市价 shows the current header price.
+    await tester.tap(find.text('下单'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('以市价成交 ≈ 100.00'), findsOneWidget);
+
+    // A new live price updates the header AND the open sheet's 市价 in sync.
+    source.emitTickers(
+        const <String, Ticker>{'BTCUSDT': (last: 250, changePct: 2)});
+    await tester.pump();
+    expect(find.textContaining('以市价成交 ≈ 250.00'), findsOneWidget);
+    expect(find.textContaining('以市价成交 ≈ 100.00'), findsNothing);
   });
 
   testWidgets('下单: 取消 on the 二次确认 keeps the sheet open and places nothing',
