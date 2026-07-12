@@ -1007,6 +1007,7 @@ class _ChartPageState extends State<ChartPage> {
         symbol: _symbol,
         // Live header price, so the sheet's 市价 tracks the top price.
         livePrice: _livePrice,
+        coinImages: widget.historyLoader == null,
         // The sheet closes itself after the二次确认; surface a receipt here.
         onPlaced: (summary) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -2291,9 +2292,13 @@ class _OrderSheet extends StatefulWidget {
     required this.symbol,
     required this.livePrice,
     required this.onPlaced,
+    this.coinImages = true,
   });
 
   final FuturesSymbol symbol;
+
+  /// Load a real coin icon in the confirm dialog (off in tests/offline).
+  final bool coinImages;
 
   /// Live header price. The sheet's 市价 tracks it in real time; also used to
   /// prefill the limit price and estimate cost. Its value is null when no price
@@ -2407,45 +2412,119 @@ class _OrderSheetState extends State<_OrderSheet> {
     // 二次确认: summarise the order and require an explicit confirmation.
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E24),
-        title: const Text('订单确认',
-            style: TextStyle(color: Colors.white, fontSize: 17)),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _confRow('合约', widget.symbol.display),
-            _confRow('方向', _sideLabel, color: _accent),
-            _confRow('类型', _type == _OrderType.market ? '市价' : '挂单价'),
-            _confRow('价格', '$_priceLabel ${widget.symbol.quoteAsset}'),
-              _confRow('数量', '${_fmtQty(qty)} ${widget.symbol.baseAsset}'),
-              if (_estCost != null)
-                _confRow('预计金额',
-                    '${_fmtPrice(_estCost!, 2)} ${widget.symbol.quoteAsset}'),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dctx).pop(false),
-            child: const Text('取消', style: TextStyle(color: Colors.white54)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(dctx).pop(true),
-            child: Text('确认下单',
-                style:
-                    TextStyle(color: _accent, fontWeight: FontWeight.bold)),
-          ),
-        ],
-      ),
+      builder: (dctx) => _confirmDialog(dctx, qty),
     );
     if (confirmed != true || !mounted) return;
     final summary =
         '已提交：$_sideLabel ${_fmtQty(qty)} ${widget.symbol.baseAsset} @ $_priceLabel（演示）';
     Navigator.of(context).pop(); // close the order sheet
     widget.onPlaced(summary);
+  }
+
+  /// The polished 二次确认 card: coin + symbol + a direction pill, divided detail
+  /// rows with an emphasised total, and 取消 / accent-filled 确认下单 buttons.
+  Widget _confirmDialog(BuildContext dctx, double qty) {
+    final typeLabel = _type == _OrderType.market ? '市价' : '挂单价';
+    return Dialog(
+      backgroundColor: const Color(0xFF1E1E24),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 36),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                _coinLogo(widget.symbol.baseAsset,
+                    size: 34, network: widget.coinImages),
+                const SizedBox(width: 10),
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(widget.symbol.display,
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 2),
+                    const Text('请确认订单信息',
+                        style: TextStyle(color: Colors.white38, fontSize: 12)),
+                  ],
+                ),
+                const Spacer(),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: _accent.withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text('$_sideLabel · $typeLabel',
+                      style: TextStyle(
+                          color: _accent,
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            _confRow('价格', '$_priceLabel ${widget.symbol.quoteAsset}'),
+            const Divider(color: Colors.white10, height: 1),
+            _confRow('数量', '${_fmtQty(qty)} ${widget.symbol.baseAsset}'),
+            if (_estCost != null) ...[
+              const Divider(color: Colors.white10, height: 1),
+              _confRow('预计金额',
+                  '${_fmtPrice(_estCost!, 2)} ${widget.symbol.quoteAsset}',
+                  emphasize: true),
+            ],
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: SizedBox(
+                    height: 46,
+                    child: TextButton(
+                      onPressed: () => Navigator.of(dctx).pop(false),
+                      style: TextButton.styleFrom(
+                        backgroundColor: const Color(0xFF2A2A31),
+                        foregroundColor: Colors.white70,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10)),
+                      ),
+                      child: const Text('取消',
+                          style: TextStyle(
+                              fontSize: 15, fontWeight: FontWeight.w600)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: SizedBox(
+                    height: 46,
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.of(dctx).pop(true),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _accent,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10)),
+                      ),
+                      child: const Text('确认下单',
+                          style: TextStyle(
+                              fontSize: 15, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -2697,8 +2776,8 @@ class _OrderSheetState extends State<_OrderSheet> {
     );
   }
 
-  Widget _confRow(String k, String v, {Color? color}) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
+  Widget _confRow(String k, String v, {bool emphasize = false}) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 11),
         child: Row(
           children: [
             Text(k, style: const TextStyle(color: Colors.white38, fontSize: 13)),
@@ -2707,9 +2786,10 @@ class _OrderSheetState extends State<_OrderSheet> {
               child: Text(v,
                   textAlign: TextAlign.right,
                   style: TextStyle(
-                      color: color ?? Colors.white,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600)),
+                      color: emphasize ? _accent : Colors.white,
+                      fontSize: emphasize ? 16 : 14,
+                      fontWeight:
+                          emphasize ? FontWeight.bold : FontWeight.w600)),
             ),
           ],
         ),
