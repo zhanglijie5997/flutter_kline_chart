@@ -153,8 +153,11 @@ class _BinanceLogoPainter extends CustomPainter {
 /// A round coin badge for [base] (e.g. 'BTC'). Loads a real token icon and
 /// falls back to a colored monogram when the image is unavailable (offline,
 /// unknown ticker, or a TradFi symbol).
-Widget _coinLogo(String base, {double size = 26}) {
+Widget _coinLogo(String base, {double size = 26, bool network = true}) {
   final fallback = _coinMonogram(base, size);
+  // Offline / tests: skip the network fetch (its load error would otherwise be
+  // reported to the framework) and show the monogram avatar directly.
+  if (!network) return fallback;
   final url =
       'https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/128/color/${base.toLowerCase()}.png';
   return SizedBox(
@@ -1041,6 +1044,7 @@ class _ChartPageState extends State<ChartPage> {
         },
         // No retry affordance offline / in tests (no network path).
         onRetry: widget.historyLoader == null ? _loadSymbols : null,
+        coinImages: widget.historyLoader == null,
       ),
     );
   }
@@ -1501,6 +1505,9 @@ class _ChartPageState extends State<ChartPage> {
         padding: const EdgeInsets.only(left: 14, right: 8),
         child: Row(
           children: [
+            _coinLogo(_symbol.baseAsset,
+                size: 26, network: widget.historyLoader == null),
+            const SizedBox(width: 8),
             // Contract name always shown in full — no ellipsis, and it keeps its
             // natural width so the price can never cover or squeeze it.
             Text(
@@ -1932,12 +1939,16 @@ class _SymbolPicker extends StatefulWidget {
     this.initialScroll = 0,
     this.onClose,
     this.onRetry,
+    this.coinImages = true,
   });
 
   /// Live contract-list state (updates while the sheet is open).
   final ValueListenable<_SymbolState> state;
   final String selected;
   final ValueChanged<FuturesSymbol> onSelected;
+
+  /// Load real coin icons over the network (off in tests/offline: monogram only).
+  final bool coinImages;
 
   /// 板块 + scroll offset to restore (the position the picker was last closed at).
   final String? initialSector;
@@ -2232,6 +2243,8 @@ class _SymbolPickerState extends State<_SymbolPicker> {
                                     selected: selected,
                                     selectedTileColor: const Color(0x142DC08E),
                                     onTap: () => widget.onSelected(s),
+                                    leading: _coinLogo(s.baseAsset,
+                                        size: 30, network: widget.coinImages),
                                     title: Row(
                                       children: [
                                         Flexible(
