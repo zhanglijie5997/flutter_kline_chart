@@ -215,8 +215,8 @@ void main() {
       }
       final ind = c.store.getIndicatorsByPaneId(pid).first;
       try {
-        final res = await Future<List<Map<String, dynamic>>>.value(
-            ind.calc(data, ind));
+        final res =
+            await Future<List<Map<String, dynamic>>>.value(ind.calc(data, ind));
         if (res.length != data.length) {
           failures[name] = 'result length ${res.length} != ${data.length}';
         }
@@ -240,7 +240,28 @@ void main() {
         reason: 'zoomOut narrows bars');
   });
 
-  test('pagination: oldestBarX approaches the edge on scroll; prependData extends history',
+  test('same-timestamp live update replaces the last bar and notifies', () {
+    final c = freshController();
+    final previous = c.getDataList().last;
+    var notifications = 0;
+    c.store.addListener(() => notifications++);
+    final updated = KLineData(
+      timestamp: previous.timestamp,
+      open: previous.open,
+      high: previous.high + 2,
+      low: previous.low,
+      close: previous.close + 1,
+      volume: (previous.volume ?? 0) + 10,
+    );
+
+    c.updateData(updated);
+
+    expect(c.getDataList().last, same(updated));
+    expect(notifications, greaterThan(0));
+  });
+
+  test(
+      'pagination: oldestBarX approaches the edge on scroll; prependData extends history',
       () {
     final c = freshController();
     c.store.setTotalBarSpace(600);
@@ -286,7 +307,8 @@ void main() {
         reason: 'OHLCV tooltip should include a {change} legend entry');
   });
 
-  testWidgets('candle tooltip renders change on the first bar (no previous close)',
+  testWidgets(
+      'candle tooltip renders change on the first bar (no previous close)',
       (tester) async {
     // Focusing bar 0 has no previous close, so the change falls back to 0%.
     // This exercises the prevClose fallback / division-guard branch.
@@ -304,8 +326,8 @@ void main() {
 
     for (final index in [0, controller.getDataList().length - 1]) {
       final x = controller.store.dataIndexToCoordinate(index);
-      controller.store.setCrosshair(Crosshair(
-          x: x, y: 160, paneId: KLineChartController.candlePaneId));
+      controller.store.setCrosshair(
+          Crosshair(x: x, y: 160, paneId: KLineChartController.candlePaneId));
       await tester.pump(const Duration(milliseconds: 30));
       expect(tester.takeException(), isNull, reason: 'crosshair at bar $index');
     }
