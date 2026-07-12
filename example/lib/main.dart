@@ -1831,12 +1831,21 @@ class _SymbolPickerState extends State<_SymbolPicker> {
 
   @override
   Widget build(BuildContext context) {
+    final mq = MediaQuery.of(context);
+    final keyboard = mq.viewInsets.bottom;
+    // Cap the sheet so its content + the keyboard never exceeds the screen.
+    // Otherwise the bottom-anchored sheet grows past the top edge and pushes
+    // the search field up under the status bar. Above the keyboard we keep the
+    // full 78% height; while it's open we shrink to the space that remains.
+    final sheetHeight = min(
+      mq.size.height * 0.78,
+      mq.size.height - mq.padding.top - keyboard,
+    );
     return Padding(
       // Lift the sheet above the on-screen keyboard.
-      padding:
-          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      padding: EdgeInsets.only(bottom: keyboard),
       child: SizedBox(
-        height: MediaQuery.of(context).size.height * 0.78,
+        height: sheetHeight,
         child: Column(
           children: [
             const SizedBox(height: 8),
