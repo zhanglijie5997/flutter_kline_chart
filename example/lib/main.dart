@@ -1132,31 +1132,31 @@ class _ChartPageState extends State<ChartPage> {
 
     // Portrait: full UI.
     return Scaffold(
-      floatingActionButton: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          FloatingActionButton.small(
-            heroTag: 'zoomIn',
-            tooltip: 'Zoom in',
-            onPressed: () => controller.zoomIn(),
-            child: const Icon(Icons.add),
-          ),
-          const SizedBox(height: 10),
-          FloatingActionButton.small(
-            heroTag: 'zoomOut',
-            tooltip: 'Zoom out',
-            onPressed: () => controller.zoomOut(),
-            child: const Icon(Icons.remove),
-          ),
-          const SizedBox(height: 10),
-          FloatingActionButton.small(
-            heroTag: 'buyMarker',
-            tooltip: 'Add buy marker at focused bar',
-            onPressed: _addBuyAtFocus,
-            child: const Icon(Icons.push_pin_outlined),
-          ),
-        ],
-      ),
+      // floatingActionButton: Column(
+      //   mainAxisSize: MainAxisSize.min,
+      //   children: [
+      //     FloatingActionButton.small(
+      //       heroTag: 'zoomIn',
+      //       tooltip: 'Zoom in',
+      //       onPressed: () => controller.zoomIn(),
+      //       child: const Icon(Icons.add),
+      //     ),
+      //     const SizedBox(height: 10),
+      //     FloatingActionButton.small(
+      //       heroTag: 'zoomOut',
+      //       tooltip: 'Zoom out',
+      //       onPressed: () => controller.zoomOut(),
+      //       child: const Icon(Icons.remove),
+      //     ),
+      //     const SizedBox(height: 10),
+      //     FloatingActionButton.small(
+      //       heroTag: 'buyMarker',
+      //       tooltip: 'Add buy marker at focused bar',
+      //       onPressed: _addBuyAtFocus,
+      //       child: const Icon(Icons.push_pin_outlined),
+      //     ),
+      //   ],
+      // ),
       backgroundColor: const Color(0xFF0D0D0F),
       bottomNavigationBar: SafeArea(top: false, child: _indicatorBar()),
       body: SafeArea(

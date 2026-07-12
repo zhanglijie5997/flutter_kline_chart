@@ -59,6 +59,18 @@ void drawCrosshairLines(Ctx ctx, PaneRenderContext c, Crosshair crosshair) {
   }
 }
 
+/// The signed percentage distance of [value] (the price under the crosshair)
+/// from [currentPrice] (the latest close), or null when there is no usable
+/// reference price.
+double? crosshairComparePercent(double value, double? currentPrice) {
+  if (currentPrice == null || currentPrice == 0) return null;
+  return (value - currentPrice) / currentPrice * 100;
+}
+
+/// Formats a change percentage as a signed, 2-decimal label, e.g. "+2.34%".
+String formatComparePercent(double pct) =>
+    '${pct > 0 ? '+' : ''}${pct.toStringAsFixed(2)}%';
+
 /// Value label in the y-axis gutter (port of CrosshairHorizontalLabelView).
 void drawCrosshairHorizontalLabel(
     Ctx ctx, PaneRenderContext c, Crosshair crosshair) {
@@ -91,6 +103,42 @@ void drawCrosshairHorizontalLabel(
       ctx,
       TextAttrs(x: x, y: crosshair.y!, text: text, align: align, baseline: 'middle'),
       textStyles);
+
+  // On the price pane, stack a colored 涨跌幅 badge directly ABOVE the crosshair
+  // price label, showing how far that price sits from the latest close. Only
+  // meaningful on the candle default axis, where [value] is a real price.
+  if (c.isCandle && yAxis.id == defaultAxisId) {
+    final dataList = c.store.getDataList();
+    final currentPrice = dataList.isEmpty ? null : dataList.last.close;
+    final pct = crosshairComparePercent(value, currentPrice);
+    if (pct != null) {
+      final last = asMap(asMap(asMap(c.styles['candle'])['priceMark'])['last']);
+      final color = pct > 0
+          ? asString(last['upColor'], '#2DC08E')
+          : pct < 0
+              ? asString(last['downColor'], '#F92855')
+              : asString(last['noChangeColor'], '#888888');
+      // Same box height as the price label (padding + text), stacked just above
+      // it with a 2px gap via a 'bottom' baseline.
+      final labelHeight = asDouble(textStyles['paddingTop'], 4) +
+          asDouble(textStyles['size'], 12) +
+          asDouble(textStyles['paddingBottom'], 4);
+      final badgeStyles = <String, dynamic>{
+        ...textStyles,
+        'backgroundColor': color,
+        'borderColor': color,
+      };
+      drawText(
+          ctx,
+          TextAttrs(
+              x: x,
+              y: crosshair.y! - labelHeight / 2 - 2,
+              text: formatComparePercent(pct),
+              align: align,
+              baseline: 'bottom'),
+          badgeStyles);
+    }
+  }
 }
 
 /// Time label in the x-axis pane (port of CrosshairVerticalLabelView).
