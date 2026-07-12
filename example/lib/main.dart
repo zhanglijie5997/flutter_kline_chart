@@ -45,6 +45,11 @@ String _fmtPrice(double v, int precision) {
   return '${neg ? '-' : ''}$buf$frac';
 }
 
+/// Order-entry model for the demo 下单 (place-order) sheet.
+enum _OrderSide { buy, sell }
+
+enum _OrderType { market, limit }
+
 /// A small pill tagging a contract as TradFi (gold) or a crypto 永续 (green).
 Widget _typeTag(bool tradFi, {double fontSize = 10}) {
   final color = tradFi ? const Color(0xFFF5A623) : const Color(0xFF2DC08E);
@@ -707,6 +712,57 @@ class _ChartPageState extends State<ChartPage> {
     }
   }
 
+  /// A prominent 下单 (place-order) button above the indicator bar. Opens the
+  /// order-entry sheet. The whole flow is a front-end demo (no real trading).
+  Widget _orderBar() {
+    return Container(
+      color: const Color(0xFF0D0D0F),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+      child: SizedBox(
+        height: 42,
+        width: double.infinity,
+        child: ElevatedButton(
+          onPressed: _openOrderSheet,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF2DC08E),
+            foregroundColor: Colors.white,
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8)),
+          ),
+          child: const Text('下单',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+        ),
+      ),
+    );
+  }
+
+  /// Open the demo order-entry sheet (市价/挂单价 下单 with a二次确认弹窗).
+  void _openOrderSheet() {
+    final data = controller.getDataList();
+    final lastPrice =
+        _liveTicker?.last ?? (data.isEmpty ? null : data.last.close);
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF17171C),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(14)),
+      ),
+      builder: (ctx) => _OrderSheet(
+        symbol: _symbol,
+        lastPrice: lastPrice,
+        // The sheet closes itself after the二次确认; surface a receipt here.
+        onPlaced: (summary) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(summary),
+            duration: const Duration(seconds: 2),
+          ));
+        },
+      ),
+    );
+  }
+
   /// Open the searchable contract picker (切换/搜索币种).
   void _openSymbolPicker() {
     showModalBottomSheet<void>(
@@ -1158,7 +1214,16 @@ class _ChartPageState extends State<ChartPage> {
       //   ],
       // ),
       backgroundColor: const Color(0xFF0D0D0F),
-      bottomNavigationBar: SafeArea(top: false, child: _indicatorBar()),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _orderBar(),
+            _indicatorBar(),
+          ],
+        ),
+      ),
       body: SafeArea(
         bottom: false,
         child: Column(
@@ -1954,4 +2019,410 @@ class _SymbolPickerState extends State<_SymbolPicker> {
       ),
     );
   }
+}
+
+/// A demo order-entry sheet: pick 买入/卖出, choose 市价 (market) or 挂单价 (limit),
+/// enter a quantity (and a limit price), then confirm. Tapping 确定 opens a
+/// secondary confirmation dialog (二次确认) before the (simulated) order is
+/// "placed" — nothing is actually sent anywhere.
+class _OrderSheet extends StatefulWidget {
+  const _OrderSheet({
+    required this.symbol,
+    required this.lastPrice,
+    required this.onPlaced,
+  });
+
+  final FuturesSymbol symbol;
+
+  /// Current market price, used to prefill the limit price and to estimate the
+  /// market fill; null when no price is known yet (offline / before first tick).
+  final double? lastPrice;
+
+  /// Called after the user confirms the二次确认 dialog, with a human-readable
+  /// receipt to surface (e.g. in a SnackBar). The sheet closes itself first.
+  final void Function(String summary) onPlaced;
+
+  @override
+  State<_OrderSheet> createState() => _OrderSheetState();
+}
+
+class _OrderSheetState extends State<_OrderSheet> {
+  static const _green = Color(0xFF2DC08E);
+  static const _red = Color(0xFFF92855);
+  static const _fieldBg = Color(0xFF23232A);
+
+  _OrderSide _side = _OrderSide.buy;
+  _OrderType _type = _OrderType.market;
+  late final TextEditingController _price;
+  final TextEditingController _qty = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _price = TextEditingController(
+      text: widget.lastPrice != null
+          ? widget.lastPrice!.toStringAsFixed(widget.symbol.pricePrecision)
+          : '',
+    );
+  }
+
+  @override
+  void dispose() {
+    _price.dispose();
+    _qty.dispose();
+    super.dispose();
+  }
+
+  Color get _accent => _side == _OrderSide.buy ? _green : _red;
+  String get _sideLabel => _side == _OrderSide.buy ? '买入' : '卖出';
+
+  double? get _qtyValue => double.tryParse(_qty.text.trim());
+  double? get _priceValue => _type == _OrderType.market
+      ? widget.lastPrice
+      : double.tryParse(_price.text.trim());
+
+  double? get _estCost {
+    final q = _qtyValue;
+    final p = _priceValue;
+    return (q == null || p == null) ? null : q * p;
+  }
+
+  /// A market order only needs a positive quantity; a limit order also needs a
+  /// positive price.
+  bool get _valid {
+    final q = _qtyValue;
+    if (q == null || q <= 0) return false;
+    if (_type == _OrderType.limit) {
+      final p = _priceValue;
+      if (p == null || p <= 0) return false;
+    }
+    return true;
+  }
+
+  /// Quantity trimmed to the contract's precision, without trailing zeros.
+  String _fmtQty(double v) {
+    var s = v.toStringAsFixed(widget.symbol.quantityPrecision);
+    if (s.contains('.')) {
+      s = s.replaceFirst(RegExp(r'0+$'), '').replaceFirst(RegExp(r'\.$'), '');
+    }
+    return s;
+  }
+
+  /// Price shown for the current order type (market shows an estimate).
+  String get _priceLabel {
+    if (_type == _OrderType.limit) {
+      return _fmtPrice(_priceValue ?? 0, widget.symbol.pricePrecision);
+    }
+    return widget.lastPrice != null
+        ? '市价 ≈ ${_fmtPrice(widget.lastPrice!, widget.symbol.pricePrecision)}'
+        : '市价';
+  }
+
+  Future<void> _submit() async {
+    if (!_valid) return;
+    final qty = _qtyValue!;
+    // 二次确认: summarise the order and require an explicit confirmation.
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E24),
+        title: const Text('订单确认',
+            style: TextStyle(color: Colors.white, fontSize: 17)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _confRow('合约', widget.symbol.display),
+            _confRow('方向', _sideLabel, color: _accent),
+            _confRow('类型', _type == _OrderType.market ? '市价' : '挂单价'),
+            _confRow('价格', '$_priceLabel ${widget.symbol.quoteAsset}'),
+            _confRow('数量', '${_fmtQty(qty)} ${widget.symbol.baseAsset}'),
+            if (_estCost != null)
+              _confRow('预计金额',
+                  '${_fmtPrice(_estCost!, 2)} ${widget.symbol.quoteAsset}'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dctx).pop(false),
+            child: const Text('取消', style: TextStyle(color: Colors.white54)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dctx).pop(true),
+            child: Text('确认下单',
+                style:
+                    TextStyle(color: _accent, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final summary =
+        '已提交：$_sideLabel ${_fmtQty(qty)} ${widget.symbol.baseAsset} @ $_priceLabel（演示）';
+    Navigator.of(context).pop(); // close the order sheet
+    widget.onPlaced(summary);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      // Lift the sheet above the on-screen keyboard; the body scrolls if the
+      // remaining space is tight.
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  const Text('下单',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 17,
+                          fontWeight: FontWeight.bold)),
+                  const SizedBox(width: 8),
+                  Text(widget.symbol.display,
+                      style: const TextStyle(
+                          color: Colors.white54, fontSize: 14)),
+                  const Spacer(),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.close,
+                        color: Colors.white38, size: 20),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              _sideToggle(),
+              const SizedBox(height: 14),
+              _typeToggle(),
+              const SizedBox(height: 14),
+              if (_type == _OrderType.limit)
+                _field(
+                  label: '价格',
+                  unit: widget.symbol.quoteAsset,
+                  controller: _price,
+                  hint: '输入挂单价',
+                )
+              else
+                _marketNote(),
+              const SizedBox(height: 14),
+              _field(
+                label: '数量',
+                unit: widget.symbol.baseAsset,
+                controller: _qty,
+                hint: '输入数量',
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('预计金额',
+                      style: TextStyle(color: Colors.white38, fontSize: 13)),
+                  Text(
+                    _estCost == null
+                        ? '--'
+                        : '${_fmtPrice(_estCost!, 2)} ${widget.symbol.quoteAsset}',
+                    style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                height: 48,
+                child: ElevatedButton(
+                  onPressed: _valid ? _submit : null,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _accent,
+                    disabledBackgroundColor: _accent.withValues(alpha: 0.4),
+                    foregroundColor: Colors.white,
+                    disabledForegroundColor: Colors.white70,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                  ),
+                  child: Text('$_sideLabel ${widget.symbol.baseAsset} · 确定',
+                      style: const TextStyle(
+                          fontSize: 16, fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _sideToggle() {
+    Widget seg(_OrderSide s, String label, Color color) {
+      final active = _side == s;
+      return Expanded(
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => setState(() => _side = s),
+          child: Container(
+            height: 34,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: active ? color : Colors.transparent,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(label,
+                style: TextStyle(
+                    color: active ? Colors.white : Colors.white54,
+                    fontSize: 14,
+                    fontWeight:
+                        active ? FontWeight.bold : FontWeight.normal)),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+          color: _fieldBg, borderRadius: BorderRadius.circular(8)),
+      padding: const EdgeInsets.all(3),
+      child: Row(children: [
+        seg(_OrderSide.buy, '买入', _green),
+        const SizedBox(width: 3),
+        seg(_OrderSide.sell, '卖出', _red),
+      ]),
+    );
+  }
+
+  Widget _typeToggle() {
+    Widget seg(_OrderType t, String label) {
+      final active = _type == t;
+      return Expanded(
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => setState(() => _type = t),
+          child: Container(
+            height: 32,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: active ? const Color(0xFF3A3A44) : Colors.transparent,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(label,
+                style: TextStyle(
+                    color: active ? Colors.white : Colors.white54,
+                    fontSize: 14,
+                    fontWeight:
+                        active ? FontWeight.bold : FontWeight.normal)),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+          color: _fieldBg, borderRadius: BorderRadius.circular(8)),
+      padding: const EdgeInsets.all(3),
+      child: Row(children: [
+        seg(_OrderType.market, '市价'),
+        const SizedBox(width: 3),
+        seg(_OrderType.limit, '挂单价'),
+      ]),
+    );
+  }
+
+  Widget _field({
+    required String label,
+    required String unit,
+    required TextEditingController controller,
+    required String hint,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label,
+            style: const TextStyle(color: Colors.white54, fontSize: 12)),
+        const SizedBox(height: 6),
+        Container(
+          height: 44,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+              color: _fieldBg, borderRadius: BorderRadius.circular(8)),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: controller,
+                  onChanged: (_) => setState(() {}),
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                  ],
+                  style: const TextStyle(color: Colors.white, fontSize: 15),
+                  decoration: InputDecoration(
+                    isCollapsed: true,
+                    border: InputBorder.none,
+                    hintText: hint,
+                    hintStyle:
+                        const TextStyle(color: Colors.white38, fontSize: 15),
+                  ),
+                ),
+              ),
+              Text(unit,
+                  style:
+                      const TextStyle(color: Colors.white38, fontSize: 13)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _marketNote() {
+    final ref = widget.lastPrice != null
+        ? '${_fmtPrice(widget.lastPrice!, widget.symbol.pricePrecision)} ${widget.symbol.quoteAsset}'
+        : '--';
+    return Container(
+      height: 44,
+      alignment: Alignment.centerLeft,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+          color: _fieldBg, borderRadius: BorderRadius.circular(8)),
+      child: Text('以市价成交 ≈ $ref',
+          style: const TextStyle(color: Colors.white54, fontSize: 13)),
+    );
+  }
+
+  Widget _confRow(String k, String v, {Color? color}) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            Text(k, style: const TextStyle(color: Colors.white38, fontSize: 13)),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Text(v,
+                  textAlign: TextAlign.right,
+                  style: TextStyle(
+                      color: color ?? Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600)),
+            ),
+          ],
+        ),
+      );
 }

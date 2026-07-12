@@ -214,6 +214,78 @@ void main() {
     expect(find.text('250.00'), findsOneWidget); // last good price retained
   });
 
+  Future<void> pumpChart(WidgetTester tester) async {
+    tester.view.physicalSize = const Size(420, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(MaterialApp(
+      home: ChartPage(
+        historyLoader: (p) async => generateData(p),
+        subscribeLive: false,
+        demoTickers: const <String, Ticker>{
+          'BTCUSDT': (last: 62000, changePct: 1),
+        },
+      ),
+    ));
+    await tester.pump(const Duration(milliseconds: 120));
+  }
+
+  testWidgets('下单: market order needs a 二次确认 before it is placed',
+      (tester) async {
+    await pumpChart(tester);
+
+    // Open the order sheet from the 下单 bar button.
+    await tester.tap(find.text('下单'));
+    await tester.pumpAndSettle();
+    expect(find.text('买入'), findsOneWidget);
+    expect(find.text('市价'), findsOneWidget);
+    expect(find.text('挂单价'), findsOneWidget);
+
+    // 确定 is disabled until a quantity is entered — no 二次确认 yet.
+    await tester.tap(find.textContaining('确定'), warnIfMissed: false);
+    await tester.pumpAndSettle();
+    expect(find.text('确认下单'), findsNothing);
+
+    // Enter a quantity, then 确定 -> the 二次确认 dialog summarises the order.
+    await tester.enterText(find.byType(TextField), '2');
+    await tester.pump();
+    await tester.tap(find.textContaining('确定'));
+    await tester.pumpAndSettle();
+    expect(find.text('确认下单'), findsOneWidget);
+    expect(find.textContaining('2 BTC'), findsWidgets);
+
+    // Confirming closes the sheet and surfaces a receipt.
+    await tester.tap(find.text('确认下单'));
+    await tester.pumpAndSettle();
+    expect(find.text('买入'), findsNothing); // sheet closed
+    expect(find.textContaining('已提交'), findsOneWidget);
+  });
+
+  testWidgets('下单: 取消 on the 二次确认 keeps the sheet open and places nothing',
+      (tester) async {
+    await pumpChart(tester);
+
+    await tester.tap(find.text('下单'));
+    await tester.pumpAndSettle();
+    // Switch to 挂单价 (limit) -> a price field (prefilled) appears alongside qty.
+    await tester.tap(find.text('挂单价'));
+    await tester.pumpAndSettle();
+    expect(find.byType(TextField), findsNWidgets(2));
+
+    await tester.enterText(find.byType(TextField).last, '3');
+    await tester.pump();
+    await tester.tap(find.textContaining('确定'));
+    await tester.pumpAndSettle();
+    expect(find.text('确认下单'), findsOneWidget);
+
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(find.text('确认下单'), findsNothing); // dialog dismissed
+    expect(find.text('买入'), findsOneWidget); // sheet still open
+    expect(find.textContaining('已提交'), findsNothing); // nothing placed
+  });
+
   testWidgets('TradFi 板块 chip filters to TradFi contracts', (tester) async {
     tester.view.physicalSize = const Size(420, 900);
     tester.view.devicePixelRatio = 1.0;
