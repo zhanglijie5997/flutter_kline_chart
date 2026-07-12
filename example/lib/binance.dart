@@ -390,12 +390,20 @@ class BinanceSource {
   static KLineData? _klineFromMap(Map<String, dynamic> json) {
     final k = json['k'];
     if (k is Map) {
+      final open = _d(k['o']);
+      final high = _d(k['h']);
+      final low = _d(k['l']);
+      final close = _d(k['c']);
+      // Drop partial/garbled frames: a real futures kline is always > 0. A lone
+      // missing or unparseable OHLC field becomes 0 via [_d], which would spike
+      // the chart's auto-scale down to zero (a candle wicking to 0.00).
+      if (open <= 0 || high <= 0 || low <= 0 || close <= 0) return null;
       return KLineData(
         timestamp: (k['t'] as num).toInt(),
-        open: _d(k['o']),
-        high: _d(k['h']),
-        low: _d(k['l']),
-        close: _d(k['c']),
+        open: open,
+        high: high,
+        low: low,
+        close: close,
         volume: _d(k['v']),
         turnover: _d(k['q']),
       );
@@ -550,15 +558,19 @@ class BinanceSource {
       gotMarketFrame = true;
       if (payload['s'] == symbol && payload['p'] != null) {
         final price = _d(payload['p']);
-        final eventTime = payload['T'] ?? payload['E'];
-        _onPrice?.call(price);
-        _onTrade?.call((
-          price: price,
-          quantity: _d(payload['q']),
-          timestamp: eventTime is num
-              ? eventTime.toInt()
-              : DateTime.now().millisecondsSinceEpoch,
-        ));
+        // Ignore garbage ticks (0 / unparseable): folding a 0 price into the
+        // forming bar pins its low to 0 and spikes the chart down to 0.00.
+        if (price > 0) {
+          final eventTime = payload['T'] ?? payload['E'];
+          _onPrice?.call(price);
+          _onTrade?.call((
+            price: price,
+            quantity: _d(payload['q']),
+            timestamp: eventTime is num
+                ? eventTime.toInt()
+                : DateTime.now().millisecondsSinceEpoch,
+          ));
+        }
       }
     }
     if (payload is Map<String, dynamic> && payload['e'] == 'kline') {

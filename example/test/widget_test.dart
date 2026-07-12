@@ -178,6 +178,42 @@ void main() {
         reason: 'search field overlaps the keyboard');
   });
 
+  testWidgets('a zero-price trade does not spike the forming bar to 0',
+      (tester) async {
+    tester.view.physicalSize = const Size(420, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final source = _FakeBinanceSource();
+    final bars = generateData(const Period(type: 'hour', span: 4));
+
+    await tester.pumpWidget(MaterialApp(
+      home: ChartPage(
+        historyLoader: (_) async => bars,
+        marketSource: source,
+        demoTickers: const <String, Ticker>{
+          'BTCUSDT': (last: 100, changePct: 1),
+        },
+      ),
+    ));
+    await tester.pump(const Duration(milliseconds: 120));
+
+    // A good trade establishes a clean forming-bar price.
+    final prev = bars.last;
+    source.emitTrade((price: 250, quantity: 1, timestamp: prev.timestamp + 1000));
+    await tester.pump(const Duration(milliseconds: 260)); // flush the throttle
+    expect(find.text('250.00'), findsOneWidget);
+
+    // A garbage 0-price tick must be ignored — not fold the bar's low/close to
+    // 0, which would collapse the header and spike the chart's axis to 0.00.
+    source
+        .emitTrade((price: 0, quantity: 1, timestamp: prev.timestamp + 2000));
+    await tester.pump(const Duration(milliseconds: 260));
+    expect(tester.takeException(), isNull);
+    expect(find.text('0.00'), findsNothing); // header did not collapse to zero
+    expect(find.text('250.00'), findsOneWidget); // last good price retained
+  });
+
   testWidgets('TradFi 板块 chip filters to TradFi contracts', (tester) async {
     tester.view.physicalSize = const Size(420, 900);
     tester.view.devicePixelRatio = 1.0;
@@ -452,6 +488,33 @@ void main() {
     await tester.tap(find.text('BTC/USDT'));
     await tester.pumpAndSettle();
     expect(find.text('ETH/USDT'), findsNothing);
+  });
+
+  group('parseKlineEvent rejects zero / partial OHLC frames', () {
+    String klineMsg(
+            {String o = '100', String h = '110', String l = '90', String c = '105'}) =>
+        '{"e":"kline","k":{"t":1783828800000,"o":"$o","h":"$h","l":"$l","c":"$c","v":"5","q":"500"}}';
+
+    test('a valid kline parses to its positive OHLC', () {
+      final bar = BinanceSource.parseKlineEvent(klineMsg());
+      expect(bar, isNotNull);
+      expect(bar!.open, 100);
+      expect(bar.high, 110);
+      expect(bar.low, 90);
+      expect(bar.close, 105);
+    });
+
+    test('a kline with a zero low is dropped (no spike to 0.00)', () {
+      expect(BinanceSource.parseKlineEvent(klineMsg(l: '0')), isNull);
+    });
+
+    test('a kline with a missing OHLC field is dropped', () {
+      expect(
+        BinanceSource.parseKlineEvent(
+            '{"e":"kline","k":{"t":1,"o":"100","h":"110","c":"105","v":"5","q":"500"}}'),
+        isNull,
+      );
+    });
   });
 
   test('trade fallback aligns the first bar to Binance UTC buckets', () {

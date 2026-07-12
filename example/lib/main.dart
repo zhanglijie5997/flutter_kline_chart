@@ -530,8 +530,10 @@ class _ChartPageState extends State<ChartPage> {
         timestamp: baseline.timestamp,
         open: baseline.open,
         high: max(baseline.high, live.high),
-        low: min(baseline.low, live.low),
-        close: live.close,
+        // Only fold in live extremes that are valid prices (> 0); a stray 0
+        // would otherwise drag the low — and the chart's auto-scale — to zero.
+        low: live.low > 0 ? min(baseline.low, live.low) : baseline.low,
+        close: live.close > 0 ? live.close : baseline.close,
         // The REST/kline baseline has authoritative cumulative volume. Adding a
         // partial trade buffer would double-count trades already in the snapshot.
         volume: baseline.volume,
@@ -818,6 +820,9 @@ class _ChartPageState extends State<ChartPage> {
     if (!mounted || gen != _loadGen || _symbol.symbol != subscribedSymbol) {
       return;
     }
+    // Reject garbage ticks (0 / NaN): folding one into the forming bar pins its
+    // low to 0 via the min() below and spikes the chart's axis down to 0.00.
+    if (!(trade.price > 0)) return;
     _tradeSequence++;
     _markMarketLive();
     final data = controller.getDataList();
