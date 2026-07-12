@@ -139,6 +139,45 @@ void main() {
     expect(find.text('ETH/USDT'), findsOneWidget); // header switched
   });
 
+  testWidgets('search field stays on-screen when the keyboard is up',
+      (tester) async {
+    const screenH = 900.0;
+    const keyboardH = 320.0;
+    tester.view.physicalSize = const Size(420, screenH);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetViewInsets);
+
+    await tester.pumpWidget(MaterialApp(
+      home: ChartPage(
+        historyLoader: (p) async => generateData(p),
+        subscribeLive: false,
+      ),
+    ));
+    await tester.pump(const Duration(milliseconds: 120));
+
+    // Open the searchable picker; its search box sits at the top of the sheet.
+    await tester.tap(find.text('BTC/USDT'));
+    await tester.pumpAndSettle();
+    final field = find.byType(TextField);
+    expect(field, findsOneWidget);
+    final topBefore = tester.getRect(field).top;
+
+    // Simulate the on-screen keyboard occupying the bottom of the screen.
+    tester.view.viewInsets = const FakeViewPadding(bottom: keyboardH);
+    await tester.pumpAndSettle();
+
+    // Focusing must NOT push the popup up: the search box stays exactly where
+    // it was (the sheet shrinks its body instead of growing upward)...
+    final rect = tester.getRect(field);
+    expect(rect.top, moreOrLessEquals(topBefore, epsilon: 0.5),
+        reason: 'the keyboard pushed the popup up');
+    // ...and it stays fully above the keyboard.
+    expect(rect.bottom, lessThanOrEqualTo(screenH - keyboardH),
+        reason: 'search field overlaps the keyboard');
+  });
+
   testWidgets('TradFi 板块 chip filters to TradFi contracts', (tester) async {
     tester.view.physicalSize = const Size(420, 900);
     tester.view.devicePixelRatio = 1.0;
